@@ -1,26 +1,28 @@
-<!-- index_lite.html: versión simplificada sin secciones 3) Árbol ni 4) Salida -->
 <!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Gestor de Categorías E-commerce (Lite)</title>
+  <title>Gestor de Categorías E-commerce</title>
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
   <header>
-    <h1>Gestor de categorías (Lite)</h1>
+    <h1>Gestor de categorías (client-side)</h1>
+    <div class="right toolbar">
+      <button id="btnExportCSV" class="btn accent" disabled>Descargar CSV</button>
+      <button id="btnExportJSON" class="btn" disabled>Descargar JSON</button>
+    </div>
   </header>
 
   <div class="container">
     <div class="grid">
-      <!-- 1) Cargar Categorías -->
       <section class="card" style="grid-column: span 6">
         <h2>1) Cargar archivo de <b>Categorías</b></h2>
         <div class="drop">
           <div>
-            <div class="small">Formato esperado (orden flexible):</div>
+            <div class="small">Formato esperado de columnas (pueden venir con tildes y distinto orden):</div>
             <div class="tags" style="margin-top:8px">
               <span class="pill">Código</span>
               <span class="pill">Categoría</span>
@@ -42,11 +44,10 @@
         <div id="previewCategorias" style="margin-top:10px;max-height:260px;overflow:auto"></div>
       </section>
 
-      <!-- 2) Cargar Artículos y asignar Rama -->
       <section class="card" style="grid-column: span 6">
         <h2>2) Cargar archivo de <b>Artículos</b></h2>
         <div class="drop">
-          <div class="small">Subí tu archivo con Código, Descripción y Género (columna L).</div>
+          <div class="small">Subí tu segundo archivo (artículos para asignar ramas).</div>
           <div>
             <input id="fileSecundario" type="file" accept=".xlsx,.xls,.csv" />
             <label for="fileSecundario">Seleccionar archivo…</label>
@@ -56,7 +57,6 @@
         <div id="previewSecundario" style="margin-top:10px;max-height:260px;overflow:auto"></div>
       </section>
 
-      <!-- 3) SOLO asignación -->
       <section class="card" style="grid-column: span 12">
         <h2>Asignar <em>Rama</em> a Artículos (por Género)</h2>
         <div class="toolbar" style="margin-bottom:8px">
