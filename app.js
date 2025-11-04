@@ -23,21 +23,38 @@ function renderTable(el, rows, limit=100){
 }
 
 function readFile(file){
-  return new Promise((resolve,reject)=>{
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = (e)=>{
-      try{
-        const data = new Uint8Array(e.target.result);
-        const wb = XLSX.read(data, {type:'array'});
+    const isCSV = /\.csv$/i.test(file.name);
+
+    reader.onload = (e) => {
+      try {
+        let wb;
+        if (isCSV) {
+          // e.target.result es TEXTO
+          const text = e.target.result;
+          // SheetJS autodetecta coma/; y comillas
+          wb = XLSX.read(text, { type: 'string' });
+        } else {
+          // e.target.result es ArrayBuffer
+          const data = new Uint8Array(e.target.result);
+          wb = XLSX.read(data, { type: 'array' });
+        }
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json(ws, {defval:'', raw:true});
+        const json = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
         resolve(json);
-      }catch(err){ reject(err); }
+      } catch (err) {
+        reject(err);
+      }
     };
-    if(/\\.csv$/i.test(file.name)) reader.readAsText(file);
+
+    // Leé como texto si es CSV, sino como binario
+    if (isCSV) reader.readAsText(file);
     else reader.readAsArrayBuffer(file);
   });
 }
+
+
 
 // ====== CATEGORÍAS ======
 let categoriaRows = [];
