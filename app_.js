@@ -1,38 +1,47 @@
 // app.js — Categorizador RÍO (XLS/XLSX/CSV) + Asignación de Ramas + Modo CYBER
-// Calcula códigos por nivel siguiendo "Es subcategoría de" (no necesita codcat1..4)
+// No requiere codcat1..4: calcula los códigos por nivel siguiendo "Es subcategoría de"
 
 const EL = (id) => document.getElementById(id);
 
 // ===================== Utils =====================
 const normalizeHeader = (s = "") =>
-  String(s)
-    .normalize("NFD").replace(/\p{Diacritic}/gu, "")
+  s
+    .toString()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
 
-const segNorm = (s = "") =>
-  String(s)
-    .normalize("NFD").replace(/\p{Diacritic}/gu, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-
 function csvCell(v) {
   if (v === undefined || v === null) return "";
   const s = String(v).replaceAll('"', '""');
-  return /[",\n]/.test(s) ? `"${s}"` : s;
+  return /[",\n]/.test(s) ? '"' + s + '"' : s;
 }
 
 function renderTable(el, rows, limit = 100) {
-  if (!rows?.length) { el.innerHTML = '<div class="small">(sin filas)</div>'; return; }
+  if (!rows?.length) {
+    el.innerHTML = '<div class="small">(sin filas)</div>';
+    return;
+  }
   const keys = Object.keys(rows[0]);
   const head = "<tr>" + keys.map((k) => `<th>${k}</th>`).join("") + "</tr>";
-  const body = rows.slice(0, limit).map((r) =>
-    "<tr>" + keys.map((k) => `<td>${String(r[k]).replaceAll("<","&lt;")}</td>`).join("") + "</tr>"
-  ).join("");
-  el.innerHTML = `<table><thead>${head}</thead><tbody>${body}</tbody></table>`
-    + (rows.length > limit ? `<div class="small">Mostrando ${limit} de ${rows.length} filas…</div>` : "");
+  const body = rows
+    .slice(0, limit)
+    .map(
+      (r) =>
+        "<tr>" +
+        keys
+          .map((k) => `<td>${String(r[k]).replaceAll("<", "&lt;")}</td>`)
+          .join("") +
+        "</tr>"
+    )
+    .join("");
+  el.innerHTML =
+    `<table><thead>${head}</thead><tbody>${body}</tbody></table>` +
+    (rows.length > limit
+      ? `<div class="small">Mostrando ${limit} de ${rows.length} filas…</div>`
+      : "");
 }
 
 // === Lector robusto (XLS/XLSX/CSV) ===
@@ -45,15 +54,19 @@ function readFile(file) {
       try {
         let wb;
         if (isCSV) {
-          wb = XLSX.read(e.target.result, { type: "string" }); // texto plano (autodetecta ; ,)
+          // Texto plano (autodetecta separador)
+          wb = XLSX.read(e.target.result, { type: "string" });
         } else {
-          const data = new Uint8Array(e.target.result);        // .xls / .xlsx
+          // ArrayBuffer para .xls y .xlsx
+          const data = new Uint8Array(e.target.result);
           wb = XLSX.read(data, { type: "array" });
         }
         const ws = wb.Sheets[wb.SheetNames[0]];
         const json = XLSX.utils.sheet_to_json(ws, { defval: "", raw: true });
         resolve(json);
-      } catch (err) { reject(err); }
+      } catch (err) {
+        reject(err);
+      }
     };
 
     if (isCSV) reader.readAsText(file);
@@ -63,14 +76,19 @@ function readFile(file) {
 
 // ===================== Categorías =====================
 let categoriaRows = [];
-let rutaToCodes = {};           // "Mujer > Ropa..." -> ["1","120","12","103"]
-let byCodeIdx = new Map();      // codigo -> nodo
+let rutaToCodes = {}; // "Mujer > Ropa ..." -> ["1","120","12","103"]
+let byCodeIdx = new Map(); // codigo -> nodo
 
 const headerAliases = {
   codigo: ["codigo", "código", "code", "id"],
   categoria: ["categoria", "categoría", "name", "nombre"],
   es_subcategoria_de: [
-    "es subcategoria de", "es subcategoría de", "padre", "parent", "parent_id", "es_subcategoria_de",
+    "es subcategoria de",
+    "es subcategoría de",
+    "padre",
+    "parent",
+    "parent_id",
+    "es_subcategoria_de",
   ],
   rama: ["rama", "ruta", "path"],
 };
@@ -78,8 +96,10 @@ const headerAliases = {
 function mapHeaders(row) {
   const mapped = {};
   for (const [std, aliases] of Object.entries(headerAliases)) {
-    const found = Object.keys(row).find((k) => aliases.includes(normalizeHeader(k)));
-    if (found) mapped[std] = row[found];
+    const foundKey = Object.keys(row).find((k) =>
+      aliases.includes(normalizeHeader(k))
+    );
+    if (foundKey) mapped[std] = row[foundKey];
   }
   return mapped;
 }
@@ -93,23 +113,30 @@ EL("fileCategorias").addEventListener("change", async (ev) => {
     renderTable(EL("previewCategorias"), rows, 60);
 
     // Normalizo y armo índice por código
-    categoriaRows = rows.map(mapHeaders).map((r) => ({
-      codigo: String(r.codigo || "").trim(),
-      categoria: String(r.categoria || "").trim(),
-      es_subcategoria_de: String(r.es_subcategoria_de || "").trim(),
-      rama: String(r.rama || "").trim(),
-    })).filter((r) => r.codigo && r.categoria);
+    categoriaRows = rows
+      .map(mapHeaders)
+      .map((r) => ({
+        codigo: String(r.codigo || "").trim(),
+        categoria: String(r.categoria || "").trim(),
+        es_subcategoria_de: String(r.es_subcategoria_de || "").trim(),
+        rama: String(r.rama || "").trim(),
+      }))
+      .filter((r) => r.codigo && r.categoria);
 
     // Índice por código
-    byCodeIdx = new Map(categoriaRows.map((r) => [r.codigo, { ...r, children: [] }]));
+    byCodeIdx = new Map(
+      categoriaRows.map((r) => [r.codigo, { ...r, children: [] }])
+    );
 
     // Enlazar hijos
     for (const node of byCodeIdx.values()) {
       const p = node.es_subcategoria_de;
-      if (p && p !== "0" && p !== "-" && byCodeIdx.has(p)) byCodeIdx.get(p).children.push(node);
+      if (p && p !== "0" && p !== "-" && byCodeIdx.has(p)) {
+        byCodeIdx.get(p).children.push(node);
+      }
     }
 
-    // Helper: trail de códigos (root -> nodo)
+    // Helper: arma trail de códigos (root -> nodo) siguiendo padres
     function codesTrailFrom(node) {
       const seen = new Set();
       const trail = [];
@@ -118,9 +145,10 @@ EL("fileCategorias").addEventListener("change", async (ev) => {
         trail.push(String(cur.codigo).trim());
         seen.add(cur.codigo);
         const parentCode = (cur.es_subcategoria_de || "").trim();
-        cur = parentCode && byCodeIdx.get(parentCode) ? byCodeIdx.get(parentCode) : null;
+        cur =
+          parentCode && byCodeIdx.get(parentCode) ? byCodeIdx.get(parentCode) : null;
       }
-      return trail.reverse();
+      return trail.reverse(); // de raíz a hoja
     }
 
     // Helper: si no viene RAMA, la construyo por nombres
@@ -132,20 +160,21 @@ EL("fileCategorias").addEventListener("change", async (ev) => {
         parts.push(cur.categoria);
         seen.add(cur.codigo);
         const parentCode = (cur.es_subcategoria_de || "").trim();
-        cur = parentCode && byCodeIdx.get(parentCode) ? byCodeIdx.get(parentCode) : null;
+        cur =
+          parentCode && byCodeIdx.get(parentCode) ? byCodeIdx.get(parentCode) : null;
       }
       return parts.reverse().join(" > ");
     }
 
-    // Construyo mapping ruta -> codes
+    // Construyo mapping ruta -> codes (desde el árbol)
     rutaToCodes = {};
     for (const node of byCodeIdx.values()) {
-      const trailCodes = codesTrailFrom(node);
+      const trailCodes = codesTrailFrom(node); // ej: ["1","120","12","103"]
       const ruta = node.rama ? node.rama : rutaFrom(node);
       if (ruta) rutaToCodes[ruta] = trailCodes;
     }
 
-    // Recalcular combos si ya había artículos
+    // Si ya hay artículos cargados, recalcular opciones (por si el user cargó Artículos antes)
     buildRamasPorGenero();
     renderTablaArticulos(EL("buscarArt")?.value || "");
 
@@ -158,25 +187,22 @@ EL("fileCategorias").addEventListener("change", async (ev) => {
 // ===================== Modo CYBER =====================
 let cyberOnly = false; // toggle
 
-// Acepta variantes: "CYBER RÍO", "CYBER RIO", "CYBER", "CYBER-RIO", espacios múltiples, etc.
 function isCyberRuta(ruta = "") {
-  const parts = String(ruta).split(">").map((s) => segNorm(s).replace(/[-_]+/g, " "));
-  if (!parts.length) return false;
-  const root = parts[0];
-  return root === "cyber rio" || root === "cyber";
+  const parts = String(ruta).split(">").map((s) => s.trim());
+  return parts.length && /^cyber\s*rio$/i.test(parts[0] || "");
 }
 
-// Género dominante de la ruta:
-// - Normal: 1er segmento (Mujer/Hombre/Niños).
-// - CYBER: 2º segmento (CYBER RIO > Mujer/Hombre/Niños > …).
+// Devuelve el género dominante de la ruta
+// - En rutas normales: 1er segmento (Mujer/Hombre/Niños)
+// - En CYBER: usa el 2do segmento (CYBER RIO > Mujer/Hombre/Niños > …)
 function generoFromRuta(ruta = "") {
-  const partsRaw = String(ruta).split(">").map((s) => s.trim());
-  if (!partsRaw.length) return "";
-  const idx = isCyberRuta(ruta) ? 1 : 0;
-  const g = segNorm(partsRaw[idx] || "");
-  if (/(mujer|fem|damas?)/.test(g)) return "Mujer";
-  if (/(hombre|masc|caballeros?)/.test(g)) return "Hombre";
-  if (/(nin|nene|nena|nino|nina|chico|chica|kids|infantil|ninos|ninas)/.test(g)) return "Niños";
+  const parts = String(ruta).split(">").map((s) => s.trim());
+  if (!parts.length) return "";
+  let gSeg = parts[0] || "";
+  if (isCyberRuta(ruta)) gSeg = parts[1] || ""; // segundo segmento es el género
+  if (/mujer/i.test(gSeg)) return "Mujer";
+  if (/hombre/i.test(gSeg)) return "Hombre";
+  if (/niñ|nene|nena|nino|niño|nina|kids|infantil/i.test(gSeg)) return "Niños";
   return "";
 }
 
@@ -186,10 +212,12 @@ EL("btnCyber")?.addEventListener("click", () => {
   EL("btnCyber").classList.toggle("active", cyberOnly);
   EL("btnCyber").textContent = cyberOnly ? "Modo CYBER: ON" : "Modo CYBER: OFF";
 
-  // Si está activo, limpio selecciones no CYBER
+  // Limpia selecciones fuera de CYBER cuando se activa
   if (cyberOnly) {
     articulos.forEach((a) => {
-      if (a.ramaSeleccionada && !isCyberRuta(a.ramaSeleccionada)) a.ramaSeleccionada = "";
+      if (a.ramaSeleccionada && !isCyberRuta(a.ramaSeleccionada)) {
+        a.ramaSeleccionada = "";
+      }
     });
   }
 
@@ -217,10 +245,15 @@ function mapHeadersArt(row) {
 }
 
 function normalizeGenero(g) {
-  const s = segNorm(g);
+  const s = String(g || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .trim();
   if (/mujer|fem/.test(s)) return "Mujer";
   if (/hombre|masc|caballero/.test(s)) return "Hombre";
-  if (/nene|nena|nino|nina|niño|niña|kids|infantil|menor|chico|chica/.test(s)) return "Niños";
+  if (/nene|nena|nino|nina|niño|niña|kids|infantil|menor|chico|chica/.test(s))
+    return "Niños";
   return "Niños";
 }
 
@@ -233,13 +266,13 @@ function normalizeArticulo(r) {
   };
 }
 
-// Construye listas de rutas por género (aplica filtro CYBER si está activo)
+// Construye las listas de rutas por género (aplica filtro CYBER si está activo)
 function buildRamasPorGenero() {
   ramasPorGenero = { Mujer: [], Hombre: [], Niños: [] };
   const sets = { Mujer: new Set(), Hombre: new Set(), Niños: new Set() };
 
   Object.keys(rutaToCodes).forEach((ruta) => {
-    if (cyberOnly && !isCyberRuta(ruta)) return; // sólo CYBER si ON
+    if (cyberOnly && !isCyberRuta(ruta)) return; // solo CYBER si está ON
     const g = generoFromRuta(ruta);
     if (g && sets[g]) sets[g].add(ruta);
   });
@@ -248,7 +281,11 @@ function buildRamasPorGenero() {
 }
 
 function optionListForGenero(g) {
-  if (!ramasPorGenero.Mujer.length && !ramasPorGenero.Hombre.length && !ramasPorGenero.Niños.length)
+  if (
+    !ramasPorGenero.Mujer.length &&
+    !ramasPorGenero.Hombre.length &&
+    !ramasPorGenero.Niños.length
+  )
     buildRamasPorGenero();
   const list = ramasPorGenero[g] || [];
   return ["", "— Seleccionar Rama —", ...list];
@@ -262,24 +299,33 @@ function renderTablaArticulos(filter = "") {
     EL("btnExportArtSemi").disabled = true;
     return;
   }
-  const rows = articulos.filter((a) =>
-    !filter || (a.codigo + " " + a.descripcion).toLowerCase().includes(filter.toLowerCase())
+  const rows = articulos.filter(
+    (a) =>
+      !filter ||
+      (a.codigo + " " + a.descripcion)
+        .toLowerCase()
+        .includes(filter.toLowerCase())
   );
-  const head = "<tr><th>Código</th><th>Descripción</th><th>Género</th><th>Rama</th></tr>";
-  const body = rows.map((a) => {
-    const opts = optionListForGenero(a.genero).map(
-      (v, i) =>
-        `<option value="${String(v).replaceAll('"', "&quot;")}" ${
-          a.ramaSeleccionada === v ? "selected" : ""
-        }>${i === 0 ? "" : v}</option>`
-    ).join("");
-    return `<tr>
+  const head =
+    "<tr><th>Código</th><th>Descripción</th><th>Género</th><th>Rama</th></tr>";
+  const body = rows
+    .map((a) => {
+      const opts = optionListForGenero(a.genero)
+        .map(
+          (v, i) =>
+            `<option value="${String(v).replaceAll('"', "&quot;")}" ${
+              a.ramaSeleccionada === v ? "selected" : ""
+            }>${i === 0 ? "" : v}</option>`
+        )
+        .join("");
+      return `<tr>
       <td>${a.codigo}</td>
       <td>${a.descripcion}</td>
       <td><span class="pill">${a.genero}</span></td>
       <td><select data-code="${a.codigo}" class="selRama" style="width:100%">${opts}</select></td>
     </tr>`;
-  }).join("");
+    })
+    .join("");
   tableEl.innerHTML = `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
   document.querySelectorAll(".selRama").forEach((sel) =>
     sel.addEventListener("change", (e) => {
@@ -322,16 +368,22 @@ EL("btnExportArt").addEventListener("click", () => {
   const lines = [cols.join(",")].concat(
     articulos
       .filter((a) => a.ramaSeleccionada)
-      .map((a) => cols.map((c) => csvCell(c === "rama" ? a.ramaSeleccionada : a[c])).join(","))
+      .map((a) =>
+        cols
+          .map((c) => csvCell(c === "rama" ? a.ramaSeleccionada : a[c]))
+          .join(",")
+      )
   );
-  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const blob = new Blob([lines.join("\n")], {
+    type: "text/csv;charset=utf-8;",
+  });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "articulos_ramas.csv";
   a.click();
 });
 
-// CSV requerido (punto y coma) — una línea por cada nivel de la rama seleccionada
+// CSV requerido (punto y coma) una línea por nivel de la rama seleccionada
 EL("btnExportArtSemi").addEventListener("click", () => {
   const selected = articulos.filter((a) => a.ramaSeleccionada);
   if (!selected.length) return;
@@ -340,12 +392,16 @@ EL("btnExportArtSemi").addEventListener("click", () => {
   selected.forEach((a) => {
     const ruta = a.ramaSeleccionada;
     const codes = (rutaToCodes && rutaToCodes[ruta]) || [];
-    codes.filter((x) => x && String(x).trim() !== "").forEach((codeCat) => {
-      outLines.push([a.codigo, a.codigo, codeCat].join(";"));
-    });
+    codes
+      .filter((x) => x && String(x).trim() !== "")
+      .forEach((codeCat) => {
+        outLines.push([a.codigo, a.codigo, codeCat].join(";"));
+      });
   });
 
-  const blob = new Blob([outLines.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const blob = new Blob([outLines.join("\n")], {
+    type: "text/csv;charset=utf-8;",
+  });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "asignacion_categorias_por_nivel.csv";
