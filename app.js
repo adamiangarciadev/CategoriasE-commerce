@@ -22,36 +22,107 @@ function renderTable(el, rows, limit=100){
   el.innerHTML = `<table><thead>${head}</thead><tbody>${body}</tbody></table>` + (rows.length>limit?`<div class="small">Mostrando ${limit} de ${rows.length} filas…</div>`:'');
 }
 
+// Reemplaza tu readFile por esta:
 function readFile(file){
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    const isCSV = /\.csv$/i.test(file.name);
+    const isCSV  = /\.csv$/i.test(file.name);
+    const isXLS  = /\.xls$/i.test(file.name);      // BIFF (viejo)
+    const isXLSX = /\.xlsx$/i.test(file.name);
 
     reader.onload = (e) => {
       try {
         let wb;
         if (isCSV) {
-          // e.target.result es TEXTO
+          // Texto plano
           const text = e.target.result;
-          // SheetJS autodetecta coma/; y comillas
           wb = XLSX.read(text, { type: 'string' });
         } else {
-          // e.target.result es ArrayBuffer
+          // ArrayBuffer para .xls/.xlsx
           const data = new Uint8Array(e.target.result);
           wb = XLSX.read(data, { type: 'array' });
         }
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
-        resolve(json);
+        // Usamos una extracción robusta que detecta la fila de encabezado
+        const rows = extractRows(ws);
+        resolve(rows);
       } catch (err) {
         reject(err);
       }
     };
 
-    // Leé como texto si es CSV, sino como binario
     if (isCSV) reader.readAsText(file);
-    else reader.readAsArrayBuffer(file);
+    else reader.readAsArrayBuffer(file); // <- .XLS y .XLSX van por acá
   });
+}
+
+// Helper: detecta la fila de encabezados y devuelve objetos [{col:valor,...}]
+function extractRows(worksheet){
+  // 1) Leemos como matriz (AOA)
+  const aoa = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: true, defval: '' });
+
+  if (!aoa || !aoa.length) return [];
+
+  // 2) Normalizador de encabezados
+  const norm = s => String(s||'')
+    .normalize('NFD').replace(/\p{Diacritic}/gu,'')
+    .replace(/\s+/g,' ')
+    .trim().toLowerCase();
+
+  // 3) Lista de posibles headers que esperamos ver en cada archivo
+  const wantedAny = [
+    // Categorías
+    'codigo','código','code','id',
+    'categoria','categoría','name','nombre',
+    'es subcategoria de','es subcategoría de','padre','parent','parent_id',
+    'rama','ruta','path',
+    'codcat1','cat1','nivel1',
+    'codcat2','cat2','nivel2',
+    'codcat3','cat3','nivel3',
+    'codcat4','cat4','nivel4',
+    // Artículos
+    'descripcion','descripción','detalle','nombre','desc',
+    'genero','género','sexo','rubro','target','a','b','l'
+  ];
+
+  // 4) Buscamos la fila que más “parece” encabezado
+  let headerRowIdx = 0;
+  let bestScore = -1;
+  for (let i=0; i<Math.min(25, aoa.length); i++){
+    const row = aoa[i];
+    const score = (row||[]).reduce((acc, cell) => acc + (wantedAny.includes(norm(cell)) ? 1 : 0), 0);
+    if (score > bestScore) { bestScore = score; headerRowIdx = i; }
+  }
+
+  const headersRaw = (aoa[headerRowIdx] || []).map(x => String(x||''));
+  // Si la cabecera está vacía, devolvemos vacío
+  if (!headersRaw.length) return [];
+
+  // 5) Armamos objetos desde la fila siguiente a la cabecera
+  const body = aoa.slice(headerRowIdx + 1);
+
+  // 6) Forzamos a string ciertos campos típicos (para no perder ceros a la izquierda)
+  const forceStringCols = new Set([
+    'codigo','código','code','id',
+    'codcat1','codcat2','codcat3','codcat4'
+  ]);
+
+  const rows = body.map(r => {
+    const obj = {};
+    headersRaw.forEach((h, idx) => {
+      const v = (r && idx < r.length) ? r[idx] : '';
+      const headerNorm = norm(h);
+      // si la columna es de códigos, fuerzo string
+      if (forceStringCols.has(headerNorm)) {
+        obj[h] = (v === null || v === undefined) ? '' : String(v);
+      } else {
+        obj[h] = v;
+      }
+    });
+    return obj;
+  });
+
+  return rows;
 }
 
 
